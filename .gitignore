@@ -1,0 +1,21 @@
+# Variables de entorno (contienen contraseñas y claves reales — NUNCA subir)
+.env
+
+# Entornos virtuales de Python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Node / frontend
+node_modules/
+dist/
+
+# IDEs
+.idea/
+.vscode/
+
+# Sistema
+.DS_Store
+Thumbs.db

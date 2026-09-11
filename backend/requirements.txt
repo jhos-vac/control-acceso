@@ -1,0 +1,22 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+# psycopg (v3, no psycopg2): mucho mejor soporte de wheels precompilados
+# para versiones nuevas de Python — evita tener que compilar desde código
+# fuente (lo cual pide Rust/Visual C++ en Windows).
+psycopg[binary]>=3.2.3
+# Sin pin exacto: fastapi 0.115.6 ya fija el rango compatible de pydantic;
+# fijarlo aparte a una versión vieja fuerza un pydantic-core sin wheel
+# para Python 3.14 y también termina pidiendo Rust para compilar.
+pydantic>=2.9,<3
+python-dotenv==1.0.1
+# bcrypt directo (no passlib[bcrypt]): passlib está sin mantenimiento y
+# rompe con versiones nuevas de bcrypt (ver comentario en services.py).
+bcrypt>=4.2
+python-jose[cryptography]==3.3.0
+requests==2.32.3
+beautifulsoup4==4.12.3
+# Windows no trae la base de datos de zonas horarias IANA que usa
+# zoneinfo (Linux/Mac sí la traen del sistema) — sin esto,
+# ZoneInfo("America/Guayaquil") falla en Windows.
+tzdata>=2024.1
