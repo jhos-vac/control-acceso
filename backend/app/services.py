@@ -15,6 +15,7 @@ Sigue el flujo funcional descrito en la sección 6 del documento:
 """
 import os
 import re
+import socket
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
@@ -40,6 +41,112 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"
 # --------------------------------------------------------------------------
 ACADEMICOK_URL = os.getenv("ACADEMICOK_URL", "https://its.academicok.com/datoscredencial")
 ACADEMICOK_TIMEOUT = int(os.getenv("ACADEMICOK_TIMEOUT", "10"))
+
+# --------------------------------------------------------------------------
+# Estado en línea de los puntos de acceso (latido / heartbeat)
+# --------------------------------------------------------------------------
+# El terminal manda un latido cada ~15s (ver terminal/leer_qr.py). Si no se
+# recibe ninguno en más de este tiempo, se muestra como "sin conexión" en
+# el panel (dispositivo apagado, sin red, o el script no está corriendo).
+EN_LINEA_SEGUNDOS = int(os.getenv("EN_LINEA_SEGUNDOS", "45"))
+
+COMANDOS_VALIDOS = {"APAGAR"}
+
+# --------------------------------------------------------------------------
+# Encendido remoto (Wake-on-LAN)
+# --------------------------------------------------------------------------
+# A diferencia de "APAGAR" (que el terminal recoge solo en su próximo
+# latido, porque sigue encendido y puede preguntar), encender un equipo que
+# ya está apagado no se puede pedir por HTTP normal: no hay nadie del otro
+# lado escuchando. La única forma sin hardware extra (un enchufe/relé
+# inteligente) es Wake-on-LAN: un "paquete mágico" UDP que se manda por
+# broadcast en la red local, dirigido a la MAC del equipo, y que la placa de
+# red del equipo detecta incluso estando apagado (si tiene esa función
+# habilitada). Limitaciones importantes, que el panel debe dejar claras:
+#   - El equipo necesita una MAC configurada en este sistema.
+#   - Wake-on-LAN normalmente requiere estar en la MISMA red local que el
+#     terminal (broadcast) — no cruza routers salvo que se configure un
+#     broadcast dirigido, por eso se puede sobreescribir con
+#     WOL_BROADCAST_IP si el backend y el terminal están en una red
+#     distinta a 255.255.255.255.
+#   - El equipo necesita tener Wake-on-LAN habilitado en el BIOS/UEFI y,
+#     casi siempre, estar conectado por cable (no WiFi).
+#   - Una Raspberry Pi (el hardware final planeado para el terminal) por lo
+#     general NO soporta encenderse así estando completamente apagada —
+#     a diferencia de una PC, no mantiene la placa de red con energía en
+#     standby. Con una Pi, la alternativa realista es un enchufe/relé
+#     inteligente que corte y reponga la energía física.
+WOL_BROADCAST_IP = os.getenv("WOL_BROADCAST_IP", "255.255.255.255")
+WOL_PUERTO = int(os.getenv("WOL_PUERTO", "9"))
+
+PATRON_MAC = re.compile(r"^[0-9A-Fa-f]{12}$")
+
+
+def normalizar_mac(mac: str) -> str:
+    """Acepta 'AA:BB:CC:DD:EE:FF', 'AA-BB-CC-DD-EE-FF' o 'AABBCCDDEEFF' y
+    devuelve siempre 'AA:BB:CC:DD:EE:FF' en mayúsculas. Lanza HTTPException
+    si el formato no es una MAC válida de 6 bytes."""
+    limpio = re.sub(r"[^0-9A-Fa-f]", "", mac or "")
+    if not PATRON_MAC.match(limpio):
+        raise HTTPException(
+            status_code=400,
+            detail="Dirección MAC inválida. Debe tener 6 bytes, ej. AA:BB:CC:DD:EE:FF.",
+        )
+    return ":".join(limpio[i : i + 2] for i in range(0, 12, 2)).upper()
+
+
+def construir_paquete_magico(mac: str) -> bytes:
+    """6 bytes 0xFF seguidos de la MAC repetida 16 veces — formato estándar
+    del 'magic packet' de Wake-on-LAN."""
+    mac_bytes = bytes.fromhex(mac.replace(":", ""))
+    return b"\xff" * 6 + mac_bytes * 16
+
+
+def enviar_wol(mac: str, broadcast_ip: str = WOL_BROADCAST_IP, puerto: int = WOL_PUERTO) -> None:
+    paquete = construir_paquete_magico(mac)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(paquete, (broadcast_ip, puerto))
+
+
+def encender_punto_acceso(db: Session, punto_id: int) -> models.PuntoAcceso:
+    """Manda el paquete mágico de Wake-on-LAN al punto de acceso indicado.
+    No hay forma de confirmar desde acá si el equipo realmente se encendió
+    (no hay nadie escuchando todavía) — el panel debe avisar que puede
+    tardar y que depende de que el hardware lo soporte."""
+    punto = db.query(models.PuntoAcceso).filter(models.PuntoAcceso.id == punto_id).first()
+    if not punto:
+        raise HTTPException(status_code=404, detail="Punto de acceso no encontrado.")
+    if not punto.mac_address:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Este punto de acceso no tiene una dirección MAC configurada. "
+                "Edítalo para agregarla antes de poder encenderlo a distancia."
+            ),
+        )
+    enviar_wol(punto.mac_address)
+    punto.en_linea = esta_en_linea(punto)
+    return punto
+
+
+def actualizar_punto_acceso(
+    db: Session, punto_id: int, datos: schema.PuntoAccesoUpdate
+) -> models.PuntoAcceso:
+    punto = db.query(models.PuntoAcceso).filter(models.PuntoAcceso.id == punto_id).first()
+    if not punto:
+        raise HTTPException(status_code=404, detail="Punto de acceso no encontrado.")
+
+    cambios = datos.model_dump(exclude_unset=True)
+    if "mac_address" in cambios and cambios["mac_address"]:
+        cambios["mac_address"] = normalizar_mac(cambios["mac_address"])
+    for campo, valor in cambios.items():
+        setattr(punto, campo, valor)
+
+    db.commit()
+    db.refresh(punto)
+    punto.en_linea = esta_en_linea(punto)
+    return punto
 
 
 # --------------------------------------------------------------------------
@@ -256,6 +363,49 @@ def procesar_acceso(db: Session, qr: str, punto_acceso_id: int) -> schema.Acceso
         persona=persona,
         fecha_hora=movimiento.fecha_hora,
     )
+
+
+def esta_en_linea(punto: models.PuntoAcceso) -> bool:
+    if not punto.ultimo_latido:
+        return False
+    segundos = (models.ahora_ecuador() - punto.ultimo_latido).total_seconds()
+    return 0 <= segundos < EN_LINEA_SEGUNDOS
+
+
+def anotar_en_linea(puntos: list) -> list:
+    """Agrega el atributo `en_linea` (no persistido) a cada PuntoAcceso,
+    calculado a partir de `ultimo_latido`, para que lo pueda leer el
+    schema de salida (PuntoAccesoOut.en_linea)."""
+    for punto in puntos:
+        punto.en_linea = esta_en_linea(punto)
+    return puntos
+
+
+def registrar_latido(db: Session, punto_id: int) -> tuple[bool, Optional[str]]:
+    """Actualiza el latido del punto de acceso y devuelve
+    (encontrado, comando_pendiente), limpiando el comando en el mismo
+    paso para no reenviarlo dos veces."""
+    punto = db.query(models.PuntoAcceso).filter(models.PuntoAcceso.id == punto_id).first()
+    if not punto:
+        return False, None
+    punto.ultimo_latido = models.ahora_ecuador()
+    comando = punto.comando_pendiente
+    punto.comando_pendiente = None
+    db.commit()
+    return True, comando
+
+
+def enviar_comando(db: Session, punto_id: int, comando: str) -> models.PuntoAcceso:
+    if comando not in COMANDOS_VALIDOS:
+        raise HTTPException(status_code=400, detail="Comando no reconocido.")
+    punto = db.query(models.PuntoAcceso).filter(models.PuntoAcceso.id == punto_id).first()
+    if not punto:
+        raise HTTPException(status_code=404, detail="Punto de acceso no encontrado.")
+    punto.comando_pendiente = comando
+    db.commit()
+    db.refresh(punto)
+    punto.en_linea = esta_en_linea(punto)
+    return punto
 
 
 # --------------------------------------------------------------------------

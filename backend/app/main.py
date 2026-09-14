@@ -12,13 +12,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import models  # noqa: F401  (asegura que los modelos se registren en Base)
-from app.database import Base, engine
+from app.database import Base, asegurar_columnas_nuevas, engine
+from app.programador import iniciar_programador_notificaciones
 from app.routes import router
 
 # Crea las tablas si no existen. Para un proyecto en crecimiento se
 # recomienda migrar a Alembic más adelante, pero esto es suficiente
 # para el MVP.
 Base.metadata.create_all(bind=engine)
+
+# Agrega columnas nuevas a tablas que ya existían (ver database.py) —
+# soluciona el "Network Error" que se veía en Puntos de acceso cuando la
+# base de datos era de antes de agregar el latido/apagado remoto.
+asegurar_columnas_nuevas()
 
 app = FastAPI(
     title="Sistema de Control de Acceso",
@@ -36,6 +42,13 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+
+@app.on_event("startup")
+async def _iniciar_tareas_en_segundo_plano():
+    # Se guarda en app.state para que Python no la recolecte como basura
+    # (asyncio no mantiene una referencia fuerte a las tareas por sí solo).
+    app.state.tarea_notificaciones = iniciar_programador_notificaciones()
 
 
 @app.get("/", tags=["healthcheck"])

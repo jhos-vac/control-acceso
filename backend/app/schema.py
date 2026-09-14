@@ -2,8 +2,8 @@
 Esquemas Pydantic usados para validar entradas y dar forma a las
 respuestas de la API (independientes de los modelos ORM).
 """
-from datetime import datetime
-from typing import Optional
+from datetime import date, datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -41,16 +41,37 @@ class PuntoAccesoBase(BaseModel):
     nombre: str
     ubicacion: Optional[str] = None
     estado: bool = True
+    mac_address: Optional[str] = None  # para poder encenderlo a distancia (Wake-on-LAN)
 
 
 class PuntoAccesoCreate(PuntoAccesoBase):
     pass
 
 
+class PuntoAccesoUpdate(BaseModel):
+    """Todos los campos opcionales: se actualiza solo lo que se envíe
+    (p.ej. agregar la MAC de un punto de acceso que ya existía)."""
+
+    nombre: Optional[str] = None
+    ubicacion: Optional[str] = None
+    estado: Optional[bool] = None
+    mac_address: Optional[str] = None
+
+
 class PuntoAccesoOut(PuntoAccesoBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    en_linea: bool = False
+    ultimo_latido: Optional[datetime] = None
+
+
+class LatidoResponse(BaseModel):
+    comando: Optional[str] = None
+
+
+class ComandoRequest(BaseModel):
+    comando: str  # hoy solo "APAGAR"
 
 
 # --------------------------------------------------------------------------
@@ -65,6 +86,43 @@ class MovimientoOut(BaseModel):
     fecha_hora: datetime
     punto_acceso_id: int
     persona: Optional[PersonalOut] = None
+
+
+# --------------------------------------------------------------------------
+# Reportes
+# --------------------------------------------------------------------------
+class ReporteDiaOut(BaseModel):
+    fecha: date
+    entradas: int
+    salidas: int
+
+
+class ReporteResumenOut(BaseModel):
+    desde: date
+    hasta: date
+    total_entradas: int
+    total_salidas: int
+    personas_entraron: int
+    personas_salieron: int
+    por_dia: List[ReporteDiaOut]
+    incidencias: List[MovimientoOut]
+    actualmente_dentro: List[MovimientoOut]
+
+
+# --------------------------------------------------------------------------
+# Notificaciones
+# --------------------------------------------------------------------------
+class NotificacionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tipo: str
+    titulo: str
+    mensaje: str
+    desde: Optional[date] = None
+    hasta: Optional[date] = None
+    leida: bool
+    fecha_creacion: datetime
 
 
 # --------------------------------------------------------------------------

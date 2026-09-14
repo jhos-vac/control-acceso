@@ -1,21 +1,45 @@
-import React from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Bell,
   Calendar,
   DoorOpen,
+  FileBarChart,
   LayoutGrid,
   LogOut,
   ShieldCheck,
   Users,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
+import api from "../api/client.js";
+
+// Cada cuánto se refresca el estado de los puntos de acceso para el
+// icono de notificaciones (igual de frecuente que el latido del
+// terminal, ver terminal/leer_qr.py -> INTERVALO_LATIDO).
+const INTERVALO_REFRESCO_MS = 15000;
+
+// El aviso de "reporte listo" no cambia segundo a segundo (el backend
+// solo genera uno nuevo una vez al día), así que se consulta con menos
+// frecuencia que el estado de los dispositivos.
+const INTERVALO_NOTIFICACIONES_MS = 60000;
+
+function tiempoRelativo(fechaIso) {
+  const segundos = Math.max(0, (Date.now() - new Date(fechaIso).getTime()) / 1000);
+  if (segundos < 60) return "hace un momento";
+  const minutos = Math.floor(segundos / 60);
+  if (minutos < 60) return `hace ${minutos} min`;
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return `hace ${horas} h`;
+  const dias = Math.floor(horas / 24);
+  return `hace ${dias} d`;
+}
 
 const navItems = [
   { to: "/", label: "Resumen", icon: LayoutGrid, end: true },
   { to: "/registros", label: "Registros", icon: Calendar },
   { to: "/personas", label: "Personas", icon: Users },
   { to: "/puntos-acceso", label: "Puntos de acceso", icon: DoorOpen },
+  { to: "/reportes", label: "Reportes", icon: FileBarChart },
 ];
 
 const hoy = new Date().toLocaleDateString("es-EC", {
@@ -23,6 +47,218 @@ const hoy = new Date().toLocaleDateString("es-EC", {
   day: "numeric",
   month: "long",
 });
+
+function NotificacionesDropdown() {
+  const navigate = useNavigate();
+
+  const [puntos, setPuntos] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState(null);
+
+  const [notificaciones, setNotificaciones] = useState([]);
+  const [cargandoNotifs, setCargandoNotifs] = useState(true);
+
+  const [abierto, setAbierto] = useState(false);
+  const [pestana, setPestana] = useState("avisos"); // "avisos" | "dispositivos"
+  const contenedorRef = useRef(null);
+
+  async function cargarPuntos() {
+    try {
+      const { data } = await api.get("/api/puntos-acceso");
+      setPuntos(data);
+      setError(null);
+    } catch (err) {
+      setError(err?.response?.data?.detail || "No se pudo consultar el estado.");
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  async function cargarNotificaciones() {
+    try {
+      const { data } = await api.get("/api/notificaciones", { params: { limite: 10 } });
+      setNotificaciones(data);
+    } catch (err) {
+      // si falla, simplemente no se muestran avisos — no bloquea el resto del panel
+    } finally {
+      setCargandoNotifs(false);
+    }
+  }
+
+  useEffect(() => {
+    cargarPuntos();
+    const intervalo = setInterval(cargarPuntos, INTERVALO_REFRESCO_MS);
+    return () => clearInterval(intervalo);
+  }, []);
+
+  useEffect(() => {
+    cargarNotificaciones();
+    const intervalo = setInterval(cargarNotificaciones, INTERVALO_NOTIFICACIONES_MS);
+    return () => clearInterval(intervalo);
+  }, []);
+
+  // Cierra el menú al hacer clic afuera
+  useEffect(() => {
+    function alClicAfuera(e) {
+      if (contenedorRef.current && !contenedorRef.current.contains(e.target)) {
+        setAbierto(false);
+      }
+    }
+    document.addEventListener("mousedown", alClicAfuera);
+    return () => document.removeEventListener("mousedown", alClicAfuera);
+  }, []);
+
+  async function marcarLeidaYVerReporte(notif) {
+    setNotificaciones((prev) =>
+      prev.map((n) => (n.id === notif.id ? { ...n, leida: true } : n))
+    );
+    setAbierto(false);
+    if (notif.desde && notif.hasta) {
+      navigate(`/reportes?desde=${notif.desde}&hasta=${notif.hasta}`);
+    }
+    try {
+      await api.post(`/api/notificaciones/${notif.id}/leer`);
+    } catch (err) {
+      // no crítico: si falla, la próxima carga la vuelve a mostrar como no leída
+    }
+  }
+
+  const desconectados = puntos.filter((p) => !p.en_linea);
+  const noLeidas = notificaciones.filter((n) => !n.leida);
+  const hayAlgunaAlerta =
+    (!cargando && !error && desconectados.length > 0) || noLeidas.length > 0;
+
+  return (
+    <div className="relative" ref={contenedorRef}>
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        className="relative text-slate-400 hover:text-slate-600"
+        title="Notificaciones"
+      >
+        <Bell size={19} />
+        {hayAlgunaAlerta && (
+          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
+        )}
+      </button>
+
+      {abierto && (
+        <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
+          <div className="flex border-b border-slate-100">
+            <button
+              onClick={() => setPestana("avisos")}
+              className={`flex-1 px-4 py-2.5 text-xs font-semibold transition-colors relative ${
+                pestana === "avisos"
+                  ? "text-brand-700 border-b-2 border-brand"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Avisos
+              {noLeidas.length > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px]">
+                  {noLeidas.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setPestana("dispositivos")}
+              className={`flex-1 px-4 py-2.5 text-xs font-semibold transition-colors ${
+                pestana === "dispositivos"
+                  ? "text-brand-700 border-b-2 border-brand"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              Dispositivos
+              {desconectados.length > 0 && !cargando && !error && (
+                <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px]">
+                  {desconectados.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {pestana === "avisos" ? (
+            <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+              {cargandoNotifs ? (
+                <p className="text-sm text-slate-500 px-4 py-4">Cargando...</p>
+              ) : notificaciones.length === 0 ? (
+                <p className="text-sm text-slate-500 px-4 py-4">
+                  Todavía no hay avisos. Aquí aparecerá el reporte diario cuando
+                  esté listo.
+                </p>
+              ) : (
+                notificaciones.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => marcarLeidaYVerReporte(n)}
+                    className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors"
+                  >
+                    <span
+                      className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
+                        n.leida ? "bg-slate-300" : "bg-brand"
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`text-sm truncate ${
+                          n.leida ? "text-slate-600" : "text-slate-900 font-semibold"
+                        }`}
+                      >
+                        {n.titulo}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">{n.mensaje}</p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        {tiempoRelativo(n.fecha_creacion)} · Ver reporte
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+              {cargando ? (
+                <p className="text-sm text-slate-500 px-4 py-4">Cargando...</p>
+              ) : error ? (
+                <p className="text-sm text-red-600 px-4 py-4">{error}</p>
+              ) : puntos.length === 0 ? (
+                <p className="text-sm text-slate-500 px-4 py-4">
+                  No hay puntos de acceso registrados todavía.
+                </p>
+              ) : (
+                puntos.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setAbierto(false);
+                      navigate(`/puntos-acceso?destacar=${p.id}`);
+                    }}
+                    className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors"
+                  >
+                    <span
+                      className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
+                        p.en_linea ? "bg-emerald-500" : "bg-slate-300"
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-900 truncate">
+                        {p.nombre}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {p.en_linea
+                          ? "Encendido · ir al dispositivo"
+                          : "Apagado / sin conexión · ir al dispositivo"}
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function DashboardLayout() {
   const { usuario, logout } = useAuth();
@@ -95,10 +331,7 @@ export default function DashboardLayout() {
             <span className="text-slate-800 font-medium">Panel</span>
           </p>
           <div className="flex items-center gap-4">
-            <button className="relative text-slate-400 hover:text-slate-600">
-              <Bell size={19} />
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-brand" />
-            </button>
+            <NotificacionesDropdown />
             <span className="text-sm text-slate-500 capitalize">{hoy}</span>
           </div>
         </header>

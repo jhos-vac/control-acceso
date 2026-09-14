@@ -11,7 +11,7 @@ import enum
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -90,7 +90,25 @@ class PuntoAcceso(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
     ubicacion = Column(String(150), nullable=True)
-    estado = Column(Boolean, default=True, nullable=False)  # activo/inactivo
+    estado = Column(Boolean, default=True, nullable=False)  # activo/inactivo (config. del admin)
+
+    # "Latido" (heartbeat): el terminal (leer_qr.py, o la Raspberry Pi más
+    # adelante) avisa periódicamente que sigue encendido llamando a
+    # POST /api/puntos-acceso/{id}/latido. Si ultima_actualizacion de este
+    # campo es muy vieja, se considera que el dispositivo está apagado o
+    # desconectado (ver services.EN_LINEA_SEGUNDOS).
+    ultimo_latido = Column(DateTime, nullable=True)
+
+    # Comando pendiente para el terminal (hoy solo "APAGAR"). El panel lo
+    # escribe acá; el terminal lo recoge en la siguiente llamada de latido
+    # y el backend lo limpia en el momento en que lo entrega (ver
+    # services.registrar_latido) para no reenviarlo dos veces.
+    comando_pendiente = Column(String(20), nullable=True)
+
+    # Dirección MAC del terminal, formato "AA:BB:CC:DD:EE:FF". Opcional:
+    # sin ella no se puede encender a distancia (Wake-on-LAN), porque el
+    # paquete mágico va dirigido a esa MAC. Ver services.enviar_wol.
+    mac_address = Column(String(17), nullable=True)
 
     movimientos = relationship("Movimiento", back_populates="punto_acceso")
 
@@ -114,6 +132,34 @@ class Movimiento(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Movimiento id={self.id} tipo={self.tipo} personal_id={self.personal_id}>"
+
+
+class Notificacion(Base):
+    """
+    Avisos para la campana del panel. Hoy solo hay un tipo
+    ("reporte_diario": "el reporte de ayer ya está listo"), pero queda
+    genérico (`tipo`) para poder sumar otros más adelante sin cambiar el
+    esquema.
+    """
+
+    __tablename__ = "notificaciones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tipo = Column(String(30), nullable=False, default="reporte_diario")
+    titulo = Column(String(150), nullable=False)
+    mensaje = Column(String(500), nullable=False)
+
+    # Rango de fechas al que se refiere (p.ej. el día del reporte listo),
+    # para poder armar el enlace directo a Reportes. Opcional porque no
+    # todo tipo de notificación futura tendrá un rango asociado.
+    desde = Column(Date, nullable=True)
+    hasta = Column(Date, nullable=True)
+
+    leida = Column(Boolean, default=False, nullable=False)
+    fecha_creacion = Column(DateTime, default=ahora_ecuador, nullable=False)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Notificacion id={self.id} tipo={self.tipo} leida={self.leida}>"
 
 
 class Usuario(Base):

@@ -15,13 +15,16 @@ endpoint /api/acceso (usado por el terminal QR) queda sin
 autenticación de usuario porque lo usa el propio dispositivo lector,
 no una persona con sesión en el panel.
 """
+from datetime import date
+from io import BytesIO
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from app import models, schema, services
+from app import models, reportes, schema, services
 from app.database import get_db
 
 router = APIRouter(prefix="/api")
@@ -42,6 +45,19 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no válido"
         )
     return user
+
+
+def get_admin_actual(
+    usuario: models.Usuario = Depends(get_current_user),
+) -> models.Usuario:
+    """Igual que get_current_user, pero además exige rol ADMIN. Se usa
+    para acciones sensibles como apagar un punto de acceso a distancia."""
+    if usuario.rol != models.RolUsuario.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta acción requiere un usuario administrador.",
+        )
+    return usuario
 
 
 # --------------------------------------------------------------------------
@@ -115,7 +131,8 @@ def listar_movimientos(
 def listar_puntos_acceso(
     db: Session = Depends(get_db), _usuario: models.Usuario = Depends(get_current_user)
 ):
-    return db.query(models.PuntoAcceso).all()
+    puntos = db.query(models.PuntoAcceso).all()
+    return services.anotar_en_linea(puntos)
 
 
 @router.post(
@@ -129,11 +146,178 @@ def crear_punto_acceso(
     db: Session = Depends(get_db),
     _usuario: models.Usuario = Depends(get_current_user),
 ):
-    punto = models.PuntoAcceso(**payload.model_dump())
+    datos = payload.model_dump()
+    if datos.get("mac_address"):
+        datos["mac_address"] = services.normalizar_mac(datos["mac_address"])
+    punto = models.PuntoAcceso(**datos)
     db.add(punto)
     db.commit()
     db.refresh(punto)
+    punto.en_linea = False
     return punto
+
+
+@router.patch(
+    "/puntos-acceso/{punto_id}",
+    response_model=schema.PuntoAccesoOut,
+    tags=["puntos-acceso"],
+)
+def editar_punto_acceso(
+    punto_id: int,
+    payload: schema.PuntoAccesoUpdate,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(get_admin_actual),
+):
+    """Permite, entre otras cosas, agregarle la dirección MAC a un punto de
+    acceso que ya existía (necesaria para poder encenderlo a distancia).
+    Requiere ADMIN, igual que crear/apagar/encender."""
+    return services.actualizar_punto_acceso(db, punto_id, payload)
+
+
+@router.post(
+    "/puntos-acceso/{punto_id}/latido",
+    response_model=schema.LatidoResponse,
+    tags=["puntos-acceso"],
+)
+def latido_punto_acceso(punto_id: int, db: Session = Depends(get_db)):
+    """
+    Llamado por el terminal (leer_qr.py, y a futuro la Raspberry Pi) cada
+    pocos segundos mientras está encendido: avisa que sigue vivo y, en la
+    misma respuesta, recoge cualquier comando pendiente (hoy solo
+    "APAGAR"). Sin autenticación de usuario, igual que /acceso: lo llama
+    el propio dispositivo, no una persona con sesión en el panel.
+    """
+    encontrado, comando = services.registrar_latido(db, punto_id)
+    if not encontrado:
+        raise HTTPException(status_code=404, detail="Punto de acceso no encontrado.")
+    return schema.LatidoResponse(comando=comando)
+
+
+@router.post(
+    "/puntos-acceso/{punto_id}/comando",
+    response_model=schema.PuntoAccesoOut,
+    tags=["puntos-acceso"],
+)
+def enviar_comando_punto_acceso(
+    punto_id: int,
+    payload: schema.ComandoRequest,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(get_admin_actual),
+):
+    """Deja un comando pendiente (hoy solo 'APAGAR') para que el terminal
+    lo recoja en su próximo latido. Requiere usuario ADMIN: apagar el
+    terminal a distancia es una acción sensible (deja el punto de acceso
+    sin lector hasta que alguien lo vuelva a encender físicamente)."""
+    return services.enviar_comando(db, punto_id, payload.comando.upper())
+
+
+@router.post(
+    "/puntos-acceso/{punto_id}/encender",
+    response_model=schema.PuntoAccesoOut,
+    tags=["puntos-acceso"],
+)
+def encender_punto_acceso(
+    punto_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(get_admin_actual),
+):
+    """Manda un paquete mágico de Wake-on-LAN a la MAC configurada del
+    punto de acceso. Requiere ADMIN. No hay confirmación real de que el
+    equipo se encendió (no hay nadie escuchando mientras está apagado) —
+    solo indica que el paquete se mandó; el panel debe avisar que depende
+    de que el hardware/red lo soporten (ver notas en services.py)."""
+    return services.encender_punto_acceso(db, punto_id)
+
+
+# --------------------------------------------------------------------------
+# Reportes (diario / semanal / mensual / personalizado)
+# --------------------------------------------------------------------------
+@router.get(
+    "/reportes/resumen", response_model=schema.ReporteResumenOut, tags=["reportes"]
+)
+def resumen_reporte(
+    desde: date = Query(..., description="Fecha inicial (incluida), YYYY-MM-DD"),
+    hasta: date = Query(..., description="Fecha final (incluida), YYYY-MM-DD"),
+    punto_acceso_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    _usuario: models.Usuario = Depends(get_current_user),
+):
+    """Datos del reporte en JSON, para mostrarlo en pantalla antes de (o
+    en vez de) descargar el PDF."""
+    return reportes.calcular_reporte(db, desde, hasta, punto_acceso_id)
+
+
+@router.get("/reportes/pdf", tags=["reportes"])
+def pdf_reporte(
+    desde: date = Query(..., description="Fecha inicial (incluida), YYYY-MM-DD"),
+    hasta: date = Query(..., description="Fecha final (incluida), YYYY-MM-DD"),
+    punto_acceso_id: Optional[int] = Query(None),
+    tipo: str = Query("personalizado", description="diario | semanal | mensual | personalizado"),
+    db: Session = Depends(get_db),
+    _usuario: models.Usuario = Depends(get_current_user),
+):
+    """Mismo cálculo que /reportes/resumen, pero devuelto como PDF listo
+    para descargar."""
+    datos = reportes.calcular_reporte(db, desde, hasta, punto_acceso_id)
+
+    punto_nombre = None
+    if punto_acceso_id:
+        punto = (
+            db.query(models.PuntoAcceso).filter(models.PuntoAcceso.id == punto_acceso_id).first()
+        )
+        punto_nombre = punto.nombre if punto else None
+
+    pdf_bytes = reportes.generar_pdf(datos, tipo=tipo, punto_nombre=punto_nombre)
+    nombre_archivo = f"reporte_{tipo}_{desde.isoformat()}_{hasta.isoformat()}.pdf"
+
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+    )
+
+
+# --------------------------------------------------------------------------
+# Notificaciones (campana del panel)
+# --------------------------------------------------------------------------
+@router.get(
+    "/notificaciones", response_model=List[schema.NotificacionOut], tags=["notificaciones"]
+)
+def listar_notificaciones(
+    solo_no_leidas: bool = False,
+    limite: int = 20,
+    db: Session = Depends(get_db),
+    _usuario: models.Usuario = Depends(get_current_user),
+):
+    query = db.query(models.Notificacion)
+    if solo_no_leidas:
+        query = query.filter(models.Notificacion.leida.is_(False))
+    return (
+        query.order_by(models.Notificacion.fecha_creacion.desc()).limit(limite).all()
+    )
+
+
+@router.post(
+    "/notificaciones/{notificacion_id}/leer",
+    response_model=schema.NotificacionOut,
+    tags=["notificaciones"],
+)
+def marcar_notificacion_leida(
+    notificacion_id: int,
+    db: Session = Depends(get_db),
+    _usuario: models.Usuario = Depends(get_current_user),
+):
+    notificacion = (
+        db.query(models.Notificacion)
+        .filter(models.Notificacion.id == notificacion_id)
+        .first()
+    )
+    if not notificacion:
+        raise HTTPException(status_code=404, detail="Notificación no encontrada.")
+    notificacion.leida = True
+    db.commit()
+    db.refresh(notificacion)
+    return notificacion
 
 
 # --------------------------------------------------------------------------

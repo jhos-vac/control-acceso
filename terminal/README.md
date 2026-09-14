@@ -52,6 +52,32 @@ backend (`POST /api/acceso`) y se muestra en pantalla:
 Controles: `R` fuerza una nueva lectura del mismo QR antes de que pase
 el tiempo antiduplicado; `ESC` cierra el programa.
 
+## Latido (estado en línea) y apagado remoto
+
+Mientras corre, este script manda un "latido" al backend cada
+`INTERVALO_LATIDO` segundos (`POST /api/puntos-acceso/{id}/latido`). Es
+lo que permite que el panel muestre si el dispositivo está encendido o
+apagado (icono de notificaciones y la página "Puntos de acceso").
+
+Si un usuario ADMIN aprieta "Apagar dispositivo" en el panel, el
+backend deja esa orden guardada; este script la recoge en su próximo
+latido (máximo `INTERVALO_LATIDO` segundos de demora) y apaga el
+equipo:
+
+- **Windows** (la PC de pruebas actual): corre `shutdown /s /t 5` —
+  **apaga toda la PC**, no solo este script. Ten esto presente si estás
+  probando en tu propia computadora de desarrollo.
+- **Linux** (pensado para cuando esto corra en una Raspberry Pi): corre
+  `sudo shutdown -h now`. El usuario que ejecuta el script necesita
+  permiso para apagar sin que se le pida contraseña — en Raspberry Pi
+  OS esto ya viene configurado por defecto para el usuario `pi`; en
+  otro caso hay que agregar una regla en `sudoers` (`NOPASSWD` para
+  `/sbin/shutdown`).
+
+Si por algún motivo no se puede apagar solo (permisos, comando no
+disponible), el script lo avisa por consola y hay que apagar el equipo
+a mano.
+
 ## Notas
 
 - La consulta a AcademicOK (scraping de `datoscredencial`) vive en

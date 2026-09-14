@@ -106,6 +106,45 @@ uvicorn app.main:app --reload
    vez debería registrar SALIDA en lugar de ENTRADA (regla validada:
    última lectura determina el tipo de movimiento).
 
+## Migraciones (sin Alembic todavía)
+
+`Base.metadata.create_all` (ver `main.py`) solo crea las **tablas** que
+falten. Cuando una tabla ya existe pero el modelo le agrega columnas
+nuevas (como pasó con el latido/estado en línea, y ahora con la MAC para
+encender a distancia), **ya no hace falta correr `ALTER TABLE` a mano**:
+`database.py` tiene una función `asegurar_columnas_nuevas()` que se llama
+sola al arrancar el backend (`main.py`) y agrega cualquier columna que
+falte. Si alguna vez hace falta correrlo a mano de todos modos (por
+ejemplo, para revisar qué agregó), el equivalente en SQL es:
+
+```sql
+ALTER TABLE puntos_acceso ADD COLUMN IF NOT EXISTS ultimo_latido TIMESTAMP NULL;
+ALTER TABLE puntos_acceso ADD COLUMN IF NOT EXISTS comando_pendiente VARCHAR(20) NULL;
+ALTER TABLE puntos_acceso ADD COLUMN IF NOT EXISTS mac_address VARCHAR(17) NULL;
+```
+
+## Encender un punto de acceso a distancia (Wake-on-LAN)
+
+Además de "Apagar", el panel tiene un botón "Encender" para un punto de
+acceso que está sin conexión. Funciona mandando un paquete Wake-on-LAN
+(`services.enviar_wol`) a la dirección MAC configurada en ese punto de
+acceso (se edita desde el panel, botón "Editar" en cada tarjeta). Antes
+de confiar en esto, hay que saber que **no siempre es posible**:
+
+- Necesita que el equipo tenga Wake-on-LAN habilitado en el BIOS/UEFI, y
+  casi siempre estar conectado por **cable** (no WiFi).
+- El paquete se manda por broadcast en la red local — por defecto a
+  `255.255.255.255`. Si el backend y el terminal NO están en la misma
+  red/subred, hay que configurar `WOL_BROADCAST_IP` en el `.env` con la
+  dirección de broadcast dirigido de la red del terminal (ej.
+  `192.168.1.255`); cruzar routers sin eso normalmente no funciona.
+- **Una Raspberry Pi apagada por lo general NO se puede encender así**
+  (a diferencia de una PC de escritorio, no mantiene la placa de red con
+  energía en espera). Como el terminal final del proyecto será una
+  Raspberry Pi, este botón es sobre todo útil para la PC de pruebas
+  actual; para la Pi en producción, la alternativa realista es un
+  enchufe/relé inteligente que corte y reponga la energía física.
+
 ## Pendientes conocidos (ver documento técnico, sección 13)
 
 - Confirmar con TI si existe/existirá una API oficial de AcademicOK que

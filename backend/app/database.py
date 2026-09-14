@@ -8,7 +8,7 @@ defecto pensado solo para desarrollo local.
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 load_dotenv()
@@ -34,3 +34,41 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# --------------------------------------------------------------------------
+# "Auto-migración" de columnas nuevas (mientras no haya Alembic)
+# --------------------------------------------------------------------------
+# `Base.metadata.create_all()` solo crea TABLAS que falten — si una tabla ya
+# existía y el modelo le agrega columnas nuevas (como pasó con
+# PuntoAcceso.ultimo_latido / comando_pendiente), esas columnas nunca se
+# crean solas y cada consulta a esa tabla falla con un error de PostgreSQL
+# ("column ... does not exist"), que en el navegador se ve como un genérico
+# "Network Error" sin más detalle. Esto evita depender de que alguien se
+# acuerde de correr el ALTER TABLE a mano: lo detecta y lo aplica solo al
+# arrancar el backend. Es deliberadamente simple (agregar columnas
+# nullable) — no reemplaza a Alembic para cambios más grandes.
+COLUMNAS_NUEVAS = {
+    "puntos_acceso": {
+        "ultimo_latido": "TIMESTAMP NULL",
+        "comando_pendiente": "VARCHAR(20) NULL",
+        "mac_address": "VARCHAR(17) NULL",
+    },
+}
+
+
+def asegurar_columnas_nuevas():
+    inspector = inspect(engine)
+    tablas_existentes = set(inspector.get_table_names())
+
+    for tabla, columnas in COLUMNAS_NUEVAS.items():
+        if tabla not in tablas_existentes:
+            continue  # la tabla se acaba de crear con create_all: ya viene completa
+        columnas_actuales = {c["name"] for c in inspector.get_columns(tabla)}
+        faltantes = {nombre: tipo for nombre, tipo in columnas.items() if nombre not in columnas_actuales}
+        if not faltantes:
+            continue
+        with engine.begin() as conexion:
+            for nombre, tipo in faltantes.items():
+                conexion.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}"))
+                print(f"[auto-migración] Se agregó la columna {tabla}.{nombre}")

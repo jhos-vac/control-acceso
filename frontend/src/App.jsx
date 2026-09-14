@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard.jsx";
 import Registros from "./pages/Registros.jsx";
 import Personas from "./pages/Personas.jsx";
 import PuntosAcceso from "./pages/PuntosAcceso.jsx";
+import Reportes from "./pages/Reportes.jsx";
 import RutaProtegida from "./components/RutaProtegida.jsx";
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="registros" element={<Registros />} />
         <Route path="personas" element={<Personas />} />
         <Route path="puntos-acceso" element={<PuntosAcceso />} />
+        <Route path="reportes" element={<Reportes />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

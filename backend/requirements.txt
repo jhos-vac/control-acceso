@@ -20,3 +20,7 @@ beautifulsoup4==4.12.3
 # zoneinfo (Linux/Mac sí la traen del sistema) — sin esto,
 # ZoneInfo("America/Guayaquil") falla en Windows.
 tzdata>=2024.1
+# Generación de los PDF del apartado de Reportes (sin dependencias de
+# sistema como Pango/Cairo, a diferencia de weasyprint — instala limpio
+# en Windows con un simple pip install).
+reportlab>=4.2,<5
