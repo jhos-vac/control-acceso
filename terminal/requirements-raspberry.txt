@@ -1,0 +1,10 @@
+# Dependencias del terminal de Raspberry Pi (leer_qr_raspberry.py) que SÍ
+# se instalan con pip. OJO: opencv-python y picamera2 NO van acá --se
+# instalan con apt como paquetes de sistema (ver README_RASPBERRY.md),
+# porque son los que Raspberry Pi OS ya trae optimizados para el hardware
+# de la Pi; instalarlos con pip en una Raspberry suele ser lento, a veces
+# falla al compilar, y puede terminar en una versión que no usa la
+# aceleración de hardware de la cámara.
+requests==2.32.3
+python-dotenv==1.0.1
+evdev==1.7.1

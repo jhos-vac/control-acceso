@@ -2,10 +2,18 @@
 
 Script de prueba que usa la cámara de tu computadora para leer el QR de
 la credencial y registrar el acceso llamando al backend. Es el mismo
-papel que cumplirá más adelante la Raspberry Pi (sección 10 del
-documento técnico): **solo lee el QR y muestra el resultado**, toda la
-lógica (buscar en la base local, consultar AcademicOK si hace falta,
+papel que cumple el terminal de producción en Raspberry Pi (ver
+`README_RASPBERRY.md`): **solo lee el QR y muestra el resultado**, toda
+la lógica (buscar en la base local, consultar AcademicOK si hace falta,
 decidir ENTRADA/SALIDA) vive en el backend.
+
+> **¿Buscas la guía de la Raspberry Pi?** Este documento es solo para el
+> terminal de prueba en PC (webcam). Para el terminal de producción
+> (Raspberry Pi 4, cámara del módulo + lector QR USB de mesa a la vez,
+> apagado/encendido remoto, arranque automático), ver
+> **`README_RASPBERRY.md`**. La lógica de comunicación con el backend
+> (latido, apagado, banner de resultado) vive en `comun.py` y la
+> comparten los dos terminales — no está duplicada.
 
 ## 1. Instalar dependencias
 

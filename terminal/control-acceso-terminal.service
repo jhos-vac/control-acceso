@@ -1,0 +1,28 @@
+# Servicio systemd para que el terminal arranque solo cuando enciende la
+# Raspberry Pi, sin que alguien tenga que iniciar sesión y correrlo a
+# mano. Ver README_RASPBERRY.md, sección "Arranque automático (systemd)"
+# para la instalación paso a paso -- este archivo por sí solo no hace
+# nada hasta que se copie a /etc/systemd/system/ y se habilite.
+#
+# IMPORTANTE: reemplaza <USUARIO> por el nombre de usuario real que
+# elegiste al grabar la SD (Raspberry Pi OS ya no usa "pi" por defecto) y
+# revisa que las rutas coincidan con dónde quedó el proyecto.
+
+[Unit]
+Description=Terminal de Control de Acceso (Raspberry Pi)
+# Espera a tener red antes de arrancar -- el terminal necesita llegar al
+# backend para el latido y para registrar accesos.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USUARIO>
+WorkingDirectory=/home/<USUARIO>/control-acceso/terminal
+Environment=DISPLAY=:0
+ExecStart=/home/<USUARIO>/control-acceso/terminal/.venv/bin/python3 /home/<USUARIO>/control-acceso/terminal/leer_qr_raspberry.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
