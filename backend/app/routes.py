@@ -65,7 +65,9 @@ def get_admin_actual(
 # --------------------------------------------------------------------------
 @router.post("/acceso", response_model=schema.AccesoResponse, tags=["acceso"])
 def registrar_acceso(payload: schema.AccesoRequest, db: Session = Depends(get_db)):
-    return services.procesar_acceso(db, payload.qr, payload.punto_acceso)
+    return services.procesar_acceso(
+        db, payload.qr, payload.punto_acceso, payload.fecha_hora_cliente
+    )
 
 
 # --------------------------------------------------------------------------

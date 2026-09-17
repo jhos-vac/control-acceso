@@ -9,11 +9,11 @@ decidir ENTRADA/SALIDA) vive en el backend.
 
 > **¿Buscas la guía de la Raspberry Pi?** Este documento es solo para el
 > terminal de prueba en PC (webcam). Para el terminal de producción
-> (Raspberry Pi 4, cámara del módulo + lector QR USB de mesa a la vez,
-> apagado/encendido remoto, arranque automático), ver
-> **`README_RASPBERRY.md`**. La lógica de comunicación con el backend
-> (latido, apagado, banner de resultado) vive en `comun.py` y la
-> comparten los dos terminales — no está duplicada.
+> (Raspberry Pi 4, lector QR USB de mesa, sin cámara, apagado/encendido
+> remoto, arranque automático), ver **`README_RASPBERRY.md`**. La lógica
+> de comunicación con el backend (latido, apagado, banner de resultado)
+> vive en `comun.py` y la comparten los dos terminales — no está
+> duplicada.
 
 ## 1. Instalar dependencias
 

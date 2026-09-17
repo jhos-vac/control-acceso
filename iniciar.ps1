@@ -25,12 +25,23 @@ function Escribir-Titulo($texto) {
 }
 
 function Buscar-Python {
-    foreach ($candidato in @("python", "py")) {
-        if (Get-Command $candidato -ErrorAction SilentlyContinue) {
-            return $candidato
+    # No basta con que Get-Command lo encuentre: en Windows, "python" a
+    # veces resuelve al alias roto de la Microsoft Store (instalado por
+    # defecto) aunque exista un Python real instalado. Por eso se prueba
+    # que el comando realmente corra (--version) y no solo que exista.
+    foreach ($candidato in @("py", "python", "python3")) {
+        $cmd = Get-Command $candidato -ErrorAction SilentlyContinue
+        if (-not $cmd) { continue }
+        try {
+            & $candidato --version *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidato
+            }
+        } catch {
+            continue
         }
     }
-    throw "No se encontró Python en el PATH. Instala Python 3.11+ (python.org) y vuelve a intentar."
+    throw "No se encontró un Python que funcione en el PATH (puede que 'python' esté apuntando al alias roto de la Microsoft Store). Instala Python 3.11+ desde python.org, o desactiva los 'Alias de ejecución de aplicaciones' de python.exe/python3.exe en Configuración de Windows, y vuelve a intentar."
 }
 
 # ------------------------------------------------------------------
@@ -72,8 +83,8 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "sigue de todas formas, pero el backend probablemente tampoco arranque." -ForegroundColor Yellow
 }
 
-Write-Host "Levantando el backend en una ventana nueva (http://127.0.0.1:8000)..."
-$cmdBackend = "& `"$backendPython`" -m uvicorn app.main:app --reload"
+Write-Host "Levantando el backend en una ventana nueva (http://127.0.0.1:8000, accesible tambien desde otros equipos de la red por la IP de esta PC)..."
+$cmdBackend = "& `"$backendPython`" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 Start-Process powershell -WorkingDirectory $backendDir -ArgumentList "-NoExit", "-Command", $cmdBackend
 
 # ------------------------------------------------------------------

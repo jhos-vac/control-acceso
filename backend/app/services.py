@@ -50,6 +50,17 @@ ACADEMICOK_TIMEOUT = int(os.getenv("ACADEMICOK_TIMEOUT", "10"))
 # el panel (dispositivo apagado, sin red, o el script no está corriendo).
 EN_LINEA_SEGUNDOS = int(os.getenv("EN_LINEA_SEGUNDOS", "45"))
 
+# --------------------------------------------------------------------------
+# Marca duplicada (ENTRADA/SALIDA repetida por error)
+# --------------------------------------------------------------------------
+# Si una persona ya tiene un movimiento registrado hace menos de este
+# tiempo, un nuevo escaneo NO alterna a ENTRADA/SALIDA -- se responde
+# "DUPLICADO" sin crear un movimiento nuevo. Pensado para el caso típico:
+# alguien no está seguro si ya marcó, vuelve a escanear "por si acaso", y
+# sin esto quedaría con una SALIDA falsa (o una ENTRADA falsa) unos
+# segundos después de la marca real.
+MINUTOS_ANTIDUPLICADO_MOVIMIENTO = float(os.getenv("MINUTOS_ANTIDUPLICADO_MOVIMIENTO", "5"))
+
 COMANDOS_VALIDOS = {"APAGAR"}
 
 # --------------------------------------------------------------------------
@@ -295,27 +306,63 @@ def obtener_o_crear_personal(
     return persona
 
 
-def esta_dentro(db: Session, personal_id: int) -> bool:
-    """Regla validada: si la última lectura fue ENTRADA, está dentro."""
-    ultimo = (
+def ultimo_movimiento(db: Session, personal_id: int) -> Optional[models.Movimiento]:
+    return (
         db.query(models.Movimiento)
         .filter(models.Movimiento.personal_id == personal_id)
         .order_by(models.Movimiento.fecha_hora.desc())
         .first()
     )
+
+
+def esta_dentro(db: Session, personal_id: int) -> bool:
+    """Regla validada: si la última lectura fue ENTRADA, está dentro."""
+    ultimo = ultimo_movimiento(db, personal_id)
     return bool(ultimo and ultimo.tipo == models.TipoMovimiento.ENTRADA)
 
 
-def registrar_movimiento(db: Session, personal_id: int, punto_acceso_id: int) -> models.Movimiento:
+def _hora_valida_cliente(fecha_hora_cliente: Optional[datetime]) -> datetime:
+    """El terminal puede mandar la hora REAL en que se leyó el QR (no la
+    hora en que se manda al backend) -- esto importa sobre todo cuando el
+    terminal estuvo sin conexión un rato y recién ahora puede enviar lo
+    que acumuló: si se usara la hora de envío, todos esos accesos
+    quedarían mal ordenados (y la ventana de "marca duplicada" de abajo
+    compararía contra el momento equivocado).
+
+    Se usa esa hora tal cual, salvo que sea claramente poco creíble (el
+    terminal no tiene batería de respaldo para el reloj -- si pierde
+    energía sin red para sincronizar por NTP, puede arrancar con una
+    fecha vieja): más de un par de minutos en el futuro (desfase de
+    reloj) o más de 30 días en el pasado. En esos casos se usa la hora
+    del servidor."""
+    ahora = models.ahora_ecuador()
+    if fecha_hora_cliente is None:
+        return ahora
+    diferencia = (ahora - fecha_hora_cliente).total_seconds()
+    if diferencia < -120 or diferencia > 30 * 24 * 3600:
+        return ahora
+    return fecha_hora_cliente
+
+
+def registrar_movimiento(
+    db: Session,
+    personal_id: int,
+    punto_acceso_id: int,
+    fecha_hora: Optional[datetime] = None,
+    ultimo: Optional[models.Movimiento] = None,
+) -> models.Movimiento:
+    if ultimo is None:
+        ultimo = ultimo_movimiento(db, personal_id)
     tipo = (
         models.TipoMovimiento.SALIDA
-        if esta_dentro(db, personal_id)
+        if (ultimo and ultimo.tipo == models.TipoMovimiento.ENTRADA)
         else models.TipoMovimiento.ENTRADA
     )
     movimiento = models.Movimiento(
         personal_id=personal_id,
         tipo=tipo,
         punto_acceso_id=punto_acceso_id,
+        fecha_hora=fecha_hora or models.ahora_ecuador(),
     )
     db.add(movimiento)
     db.commit()
@@ -323,7 +370,12 @@ def registrar_movimiento(db: Session, personal_id: int, punto_acceso_id: int) ->
     return movimiento
 
 
-def procesar_acceso(db: Session, qr: str, punto_acceso_id: int) -> schema.AccesoResponse:
+def procesar_acceso(
+    db: Session,
+    qr: str,
+    punto_acceso_id: int,
+    fecha_hora_cliente: Optional[datetime] = None,
+) -> schema.AccesoResponse:
     idperfil = extraer_idperfil(qr)
 
     persona = None
@@ -355,7 +407,28 @@ def procesar_acceso(db: Session, qr: str, punto_acceso_id: int) -> schema.Acceso
     if not punto or not punto.estado:
         raise HTTPException(status_code=400, detail="Punto de acceso inválido o inactivo.")
 
-    movimiento = registrar_movimiento(db, persona.id, punto_acceso_id)
+    momento = _hora_valida_cliente(fecha_hora_cliente)
+    ultimo = ultimo_movimiento(db, persona.id)
+
+    if ultimo:
+        segundos_desde_ultimo = (momento - ultimo.fecha_hora).total_seconds()
+        if 0 <= segundos_desde_ultimo < MINUTOS_ANTIDUPLICADO_MOVIMIENTO * 60:
+            minutos = int(segundos_desde_ultimo // 60)
+            hace = f"{minutos} min" if minutos else f"{int(segundos_desde_ultimo)} s"
+            return schema.AccesoResponse(
+                resultado="DUPLICADO",
+                mensaje=(
+                    f"Ya se había registrado {ultimo.tipo.value} hace {hace} -- "
+                    "no se volvió a marcar para evitar un duplicado."
+                ),
+                persona=persona,
+                fecha_hora=ultimo.fecha_hora,
+                ultimo_tipo=ultimo.tipo.value,
+            )
+
+    movimiento = registrar_movimiento(
+        db, persona.id, punto_acceso_id, fecha_hora=momento, ultimo=ultimo
+    )
 
     return schema.AccesoResponse(
         resultado=movimiento.tipo.value,

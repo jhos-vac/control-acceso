@@ -131,13 +131,24 @@ class NotificacionOut(BaseModel):
 class AccesoRequest(BaseModel):
     qr: str
     punto_acceso: int
+    # Momento REAL en que el terminal leyó el QR -- no cuándo lo manda al
+    # backend. Importante para la cola local sin conexión: un terminal
+    # puede leer varios códigos mientras no hay red y enviarlos recién
+    # cuando vuelve, minutos u horas después; sin este campo todos
+    # quedarían con la hora de envío, no la de la lectura real. Opcional:
+    # si no se manda, el backend usa su propia hora.
+    fecha_hora_cliente: Optional[datetime] = None
 
 
 class AccesoResponse(BaseModel):
-    resultado: str  # "ENTRADA" | "SALIDA" | "DENEGADO"
+    resultado: str  # "ENTRADA" | "SALIDA" | "DENEGADO" | "DUPLICADO"
     mensaje: str
     persona: Optional[PersonalOut] = None
     fecha_hora: Optional[datetime] = None
+    # Solo viene en "DUPLICADO": qué tipo de movimiento fue el que ya
+    # estaba registrado (para que el terminal pueda mostrar, por ejemplo,
+    # "Ya se registró ENTRADA hace 2 min").
+    ultimo_tipo: Optional[str] = None
 
 
 # --------------------------------------------------------------------------

@@ -68,11 +68,28 @@ punto de acceso llamado "Entrada principal".
 ## 6. Levantar la API
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - API: http://127.0.0.1:8000
 - Documentación interactiva (Swagger): http://127.0.0.1:8000/docs
+
+**`--host 0.0.0.0` es importante** si algún otro equipo de la red va a
+hablar con este backend (el terminal de Raspberry Pi, el frontend desde
+otra PC, o probar desde el celular) — sin eso, `uvicorn` por defecto
+solo escucha conexiones que vienen de la misma máquina (`127.0.0.1`), y
+cualquier otro dispositivo que intente conectarse se queda esperando
+hasta que la conexión da timeout (`Connection ... timed out`), aunque la
+IP y el puerto en su `.env`/`API_URL` estén bien escritos.
+
+Si después de este cambio otro equipo sigue sin poder conectarse,
+revisa también el **Firewall de Windows**: puede estar bloqueando
+conexiones entrantes al puerto 8000. La primera vez que corres
+`uvicorn` con `--host 0.0.0.0`, Windows normalmente pregunta si permitir
+el acceso — dile que sí, para redes privadas. Si no te preguntó (o
+dijiste que no sin querer), agrega la regla a mano: *Firewall de Windows
+Defender* → *Configuración avanzada* → *Reglas de entrada* → *Nueva
+regla* → Puerto → TCP → `8000` → Permitir la conexión.
 
 ## 7. Probar el flujo principal
 
@@ -105,6 +122,45 @@ uvicorn app.main:app --reload
 3. Repetir la misma llamada con un `idperfil` que sí exista: la segunda
    vez debería registrar SALIDA en lugar de ENTRADA (regla validada:
    última lectura determina el tipo de movimiento).
+
+4. Repetir la misma llamada una tercera vez, enseguida: en vez de volver
+   a alternar a ENTRADA, debería responder `DUPLICADO` (ver sección
+   siguiente) — no se registra un movimiento nuevo.
+
+## Marca duplicada (alguien no está seguro si ya marcó)
+
+Si una persona ya tiene un movimiento registrado hace menos de
+`MINUTOS_ANTIDUPLICADO_MOVIMIENTO` (`.env`, por defecto 5 minutos), un
+nuevo escaneo **no alterna** a ENTRADA/SALIDA — responde:
+
+```json
+{
+  "resultado": "DUPLICADO",
+  "mensaje": "Ya se había registrado ENTRADA hace 2 min -- no se volvió a marcar para evitar un duplicado.",
+  "persona": { ... },
+  "fecha_hora": "2026-09-16T08:30:00",
+  "ultimo_tipo": "ENTRADA"
+}
+```
+
+No se crea ningún `Movimiento` nuevo en ese caso — el historial y los
+reportes quedan limpios, sin marcas duplicadas de una misma persona por
+error. `ultimo_tipo` le sirve al terminal para mostrar qué fue lo que ya
+se había registrado.
+
+### `fecha_hora_cliente` — por qué `POST /api/acceso` acepta una fecha
+
+El terminal puede mandar, junto con el QR, el momento **real** en que lo
+leyó (`fecha_hora_cliente`, opcional). Es necesario para que la cola
+local sin conexión del terminal de Raspberry Pi (ver
+`../terminal/README_RASPBERRY.md`) funcione bien: si el terminal estuvo
+sin red un rato y recién puede enviar lo acumulado minutos u horas
+después, cada acceso debe evaluarse (orden ENTRADA/SALIDA, ventana de
+duplicado) con la hora en que realmente se escaneó, no con la hora en
+que llegó al backend. Si no se manda, o si el backend la considera poco
+creíble (más de 2 minutos en el futuro, o más de 30 días en el pasado —
+señal de que el reloj del terminal está mal), se usa la hora del
+servidor.
 
 ## Migraciones (sin Alembic todavía)
 
