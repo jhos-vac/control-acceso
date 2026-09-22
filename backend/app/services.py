@@ -514,6 +514,39 @@ def autenticar_usuario(db: Session, usuario: str, password: str) -> Optional[mod
     return user
 
 
+def cambiar_password(
+    db: Session, usuario: models.Usuario, password_actual: str, password_nueva: str
+) -> None:
+    """El propio usuario cambia su contraseña (menú del panel, o el paso
+    obligatorio de "cambia tu contraseña" en el primer ingreso -- ver
+    `debe_cambiar_password`). Pide la contraseña actual para confirmar
+    que es él, no un tercero con la sesión abierta."""
+    if not verificar_password(password_actual, usuario.password_hash):
+        raise HTTPException(status_code=400, detail="La contraseña actual no es correcta.")
+    if len(password_nueva) < 8:
+        raise HTTPException(
+            status_code=400, detail="La contraseña nueva debe tener al menos 8 caracteres."
+        )
+    usuario.password_hash = hash_password(password_nueva)
+    usuario.debe_cambiar_password = False
+    db.commit()
+
+
+def resetear_password(db: Session, usuario: models.Usuario, password_temporal: str) -> None:
+    """Un ADMIN resetea la contraseña de OTRO usuario (lo dejó afuera,
+    la olvidó, etc.) -- queda con esta contraseña temporal y
+    `debe_cambiar_password=True`, para que la cambie por una propia
+    apenas vuelva a entrar. No pide la contraseña anterior (el ADMIN no
+    la conoce, para eso es el reseteo)."""
+    if len(password_temporal) < 8:
+        raise HTTPException(
+            status_code=400, detail="La contraseña temporal debe tener al menos 8 caracteres."
+        )
+    usuario.password_hash = hash_password(password_temporal)
+    usuario.debe_cambiar_password = True
+    db.commit()
+
+
 def crear_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)

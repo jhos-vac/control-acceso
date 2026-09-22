@@ -62,8 +62,13 @@ y un punto de acceso desde el inicio, corre:
 python seed_db.py
 ```
 
-Esto crea el usuario `admin` (ver `.env` para la contraseña) y un
-punto de acceso llamado "Entrada principal".
+Esto crea el usuario `administrador` (ver `.env` para la contraseña, por
+defecto `administrador123`) y un punto de acceso llamado "Entrada
+principal". Ese usuario queda marcado con `debe_cambiar_password=True`:
+el panel lo obliga a elegir su propia contraseña la primera vez que
+entra, antes de dejarlo usar el resto del sistema (ver
+"Cambiar/recuperar contraseña" más abajo) — no hace falta cambiar el
+valor por defecto acá por seguridad, ese paso ya lo cubre.
 
 ## 6. Levantar la API
 
@@ -97,8 +102,12 @@ regla* → Puerto → TCP → `8000` → Permitir la conexión.
 
    ```
    POST /api/login
-   { "usuario": "admin", "password": "admin123" }
+   { "usuario": "administrador", "password": "administrador123" }
    ```
+
+   (la respuesta trae `usuario.debe_cambiar_password: true` la primera
+   vez — el panel usa ese campo para forzar el cambio antes de dejar
+   entrar a lo demás; no bloquea el resto de la API.)
 
 2. Simular una lectura de QR (no requiere token, es lo que usa el
    terminal/lector — ver `../terminal/`):
@@ -200,6 +209,33 @@ de confiar en esto, hay que saber que **no siempre es posible**:
   Raspberry Pi, este botón es sobre todo útil para la PC de pruebas
   actual; para la Pi en producción, la alternativa realista es un
   enchufe/relé inteligente que corte y reponga la energía física.
+
+## Cambiar / recuperar la contraseña de un usuario del panel
+
+- **El propio usuario cambia su contraseña** (voluntario, o el paso
+  obligatorio del primer ingreso — ver más arriba):
+  `POST /api/usuarios/me/password` con
+  `{"password_actual": "...", "password_nueva": "..."}` (token de ese
+  mismo usuario). Pone `debe_cambiar_password=False`.
+- **Un ADMIN resetea la contraseña de OTRO usuario** que quedó afuera:
+  `POST /api/usuarios/{id}/resetear-password` (requiere token de un
+  ADMIN) con `{"password_temporal": "..."}`. Deja
+  `debe_cambiar_password=True`, así que esa persona va a tener que
+  elegir la suya propia apenas entre con la temporal.
+- **El propio ADMIN (o cualquier usuario, si no hay otro ADMIN) se
+  queda afuera** — no hay forma de usar los endpoints de arriba porque
+  ninguno puede loguearse. Para ese caso:
+
+  ```bash
+  cd backend   # con el entorno virtual activado
+  python resetear_password_admin.py <usuario> "<contraseña nueva>"
+  ```
+
+  Se corre DIRECTO en el servidor (no llama a la API, no necesita login
+  ni correo) — solo hace falta acceso a la máquina y a la base de datos
+  real (el mismo `.env` que usa el backend). Mismo espíritu que
+  `seed_db.py`. Deja a ese usuario con `debe_cambiar_password=True`
+  también.
 
 ## Pendientes conocidos (ver documento técnico, sección 13)
 

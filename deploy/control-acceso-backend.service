@@ -1,0 +1,39 @@
+# Servicio systemd para el backend (FastAPI/Uvicorn) en el servidor de
+# producción -- para que arranque solo, se reinicie si se cae, y no
+# dependa de dejar una terminal abierta con "uvicorn ... --reload"
+# (eso es solo para desarrollo local).
+#
+# IMPORTANTE: reemplaza <USUARIO> por el usuario del servidor que va a
+# correr el backend, y revisa que las rutas coincidan con dónde quedó
+# el proyecto clonado (se asume /var/www/control-acceso, igual que
+# nginx-control-acceso.conf en esta misma carpeta).
+#
+# Instalación:
+#
+#   sudo cp deploy/control-acceso-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable control-acceso-backend.service
+#   sudo systemctl start control-acceso-backend.service
+#   sudo systemctl status control-acceso-backend.service
+#   journalctl -u control-acceso-backend.service -f   # logs en vivo
+#
+# El backend queda escuchando SOLO en 127.0.0.1:8000 (no expuesto
+# directamente a internet) -- es Nginx (ver nginx-control-acceso.conf)
+# el que lo expone hacia afuera en /api/, con TLS.
+
+[Unit]
+Description=Backend de Control de Acceso (FastAPI/Uvicorn)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<USUARIO>
+WorkingDirectory=/var/www/control-acceso/backend
+EnvironmentFile=-/var/www/control-acceso/backend/.env
+ExecStart=/var/www/control-acceso/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

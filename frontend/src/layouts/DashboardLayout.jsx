@@ -5,6 +5,7 @@ import {
   Calendar,
   DoorOpen,
   FileBarChart,
+  KeyRound,
   LayoutGrid,
   LogOut,
   ShieldCheck,
@@ -262,6 +263,7 @@ function NotificacionesDropdown() {
 
 export default function DashboardLayout() {
   const { usuario, logout } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <div className="min-h-screen flex bg-[#F7F8F8]">
@@ -312,6 +314,13 @@ export default function DashboardLayout() {
                 {usuario?.rol === "ADMIN" ? "Administrador" : "Operador"}
               </p>
             </div>
+            <button
+              onClick={() => navigate("/cambiar-password")}
+              title="Cambiar contraseña"
+              className="text-slate-400 hover:text-brand-700 transition-colors"
+            >
+              <KeyRound size={18} />
+            </button>
             <button
               onClick={logout}
               title="Cerrar sesión"

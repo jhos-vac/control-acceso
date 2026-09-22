@@ -13,6 +13,8 @@ completa).
 | `terminal/` | Lector de QR de prueba en PC (cámara + OpenCV). Solo lee el QR y llama a la API — el equivalente de lo que hará la Raspberry Pi. | `python leer_qr.py` |
 
 Cada carpeta tiene su propio `README.md` con instrucciones detalladas.
+Para desplegar todo en un servidor de producción (no en tu PC), ver
+[`DESPLIEGUE.md`](DESPLIEGUE.md).
 
 ## Arranque rápido (todo de una vez)
 

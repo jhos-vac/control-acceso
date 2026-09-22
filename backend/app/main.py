@@ -8,6 +8,8 @@ entorno virtual activado):
 
 La documentación interactiva queda disponible en /docs.
 """
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -32,10 +34,20 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# En producción, restringir allow_origins al dominio real del panel React.
+# Orígenes permitidos para el panel React -- separados por coma en
+# ALLOWED_ORIGINS (ver .env / .env.production.example). Sin esa variable
+# (como en desarrollo local) se permite cualquier origen ("*"), para no
+# complicar las pruebas locales del panel en distintos puertos.
+_origenes_configurados = os.getenv("ALLOWED_ORIGINS", "").strip()
+ALLOWED_ORIGINS = (
+    [origen.strip() for origen in _origenes_configurados.split(",") if origen.strip()]
+    if _origenes_configurados
+    else ["*"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

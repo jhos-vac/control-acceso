@@ -7,12 +7,22 @@ import Registros from "./pages/Registros.jsx";
 import Personas from "./pages/Personas.jsx";
 import PuntosAcceso from "./pages/PuntosAcceso.jsx";
 import Reportes from "./pages/Reportes.jsx";
+import CambiarPassword from "./pages/CambiarPassword.jsx";
 import RutaProtegida from "./components/RutaProtegida.jsx";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+
+      <Route
+        path="/cambiar-password"
+        element={
+          <RutaProtegida>
+            <CambiarPassword />
+          </RutaProtegida>
+        }
+      />
 
       <Route
         path="/"

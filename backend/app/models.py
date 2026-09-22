@@ -173,6 +173,12 @@ class Usuario(Base):
     password_hash = Column(String(255), nullable=False)
     rol = Column(Enum(RolUsuario), default=RolUsuario.OPERADOR, nullable=False)
     estado = Column(Boolean, default=True, nullable=False)
+    # True cuando el usuario todavía tiene la contraseña que le asignaron
+    # (la inicial de seed_db.py, o una reseteada por un ADMIN/el script de
+    # recuperación) -- el panel lo obliga a elegir una propia antes de
+    # dejarlo usar el resto del sistema. Se pone en False apenas la
+    # cambia por su cuenta (ver services.cambiar_password).
+    debe_cambiar_password = Column(Boolean, default=True, nullable=False)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Usuario id={self.id} usuario={self.usuario} rol={self.rol}>"

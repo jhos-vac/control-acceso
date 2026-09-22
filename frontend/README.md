@@ -52,7 +52,10 @@ npm run dev
 ```
 
 Abre http://localhost:5173 — te pedirá iniciar sesión con el usuario creado
-por `seed_db.py` en el backend (por defecto `admin` / `admin123`).
+por `seed_db.py` en el backend (por defecto `administrador` /
+`administrador123`). La primera vez que entres, el panel te va a pedir
+elegir tu propia contraseña antes de dejarte ver el resto (ver
+"Cambiar/recuperar contraseña" más abajo) — es normal, no es un error.
 
 ## 5. Compilar para producción
 
@@ -73,10 +76,27 @@ Genera la carpeta `dist/` lista para desplegar.
 - Si el token expira o es inválido, la sesión se cierra automáticamente y
   se redirige a `/login`.
 
+## Cambiar / recuperar contraseña
+
+- **Cambiar la propia contraseña**: ícono de llave junto al nombre de
+  usuario, abajo del todo en la barra lateral (`src/pages/CambiarPassword.jsx`,
+  `POST /api/usuarios/me/password`) — pide la contraseña actual.
+- **Primer ingreso / después de un reseteo**: la misma pantalla, pero
+  obligatoria — no se puede usar el resto del panel hasta elegir una
+  contraseña propia (`usuario.debe_cambiar_password`, ver `RutaProtegida.jsx`).
+- **Un ADMIN resetea la contraseña de otro usuario** que quedó afuera:
+  `POST /api/usuarios/{id}/resetear-password` (todavía no tiene botón en
+  el panel — hoy se llama directo a la API; agregar la pantalla de
+  administración de usuarios lo resolvería, ver "Pendiente").
+- **El propio ADMIN se queda afuera** (olvidó su contraseña y no hay
+  quien se la resetee desde el panel): `backend/resetear_password_admin.py`,
+  un script para correr directo en el servidor — ver `backend/README.md`.
+
 ## Pendiente
 
-- Páginas de administración de `usuarios` (alta/edición) — por ahora el
-  usuario admin se crea desde `seed_db.py` en el backend.
+- Página de administración de `usuarios` (alta/edición/reseteo de
+  contraseña desde la interfaz, no solo por API) — por ahora el usuario
+  admin se crea desde `seed_db.py` en el backend.
 - Edición/baja de personas y puntos de acceso (hoy solo hay alta de puntos
   de acceso).
 - Vista específica para el terminal QR (la sección 9 del documento técnico

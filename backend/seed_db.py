@@ -9,8 +9,13 @@ Uso (desde backend/, con el entorno virtual activado):
     python seed_db.py
 
 Variables opcionales de entorno para el usuario administrador inicial:
-    ADMIN_USUARIO   (por defecto: admin)
-    ADMIN_PASSWORD  (por defecto: admin123, ¡cámbiala!)
+    ADMIN_USUARIO   (por defecto: administrador)
+    ADMIN_PASSWORD  (por defecto: administrador123, ¡cámbiala!)
+
+El usuario queda marcado con `debe_cambiar_password=True`: el panel lo
+obliga a elegir su propia contraseña la primera vez que entra, antes de
+dejarlo usar el resto del sistema (ver `POST /api/usuarios/me/password`
+y `frontend/src/pages/CambiarPassword.jsx`).
 """
 import os
 
@@ -22,8 +27,8 @@ def main():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        admin_usuario = os.getenv("ADMIN_USUARIO", "admin")
-        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+        admin_usuario = os.getenv("ADMIN_USUARIO", "administrador")
+        admin_password = os.getenv("ADMIN_PASSWORD", "administrador123")
 
         existente = (
             db.query(models.Usuario).filter(models.Usuario.usuario == admin_usuario).first()
@@ -35,9 +40,11 @@ def main():
                 password_hash=services.hash_password(admin_password),
                 rol=models.RolUsuario.ADMIN,
                 estado=True,
+                debe_cambiar_password=True,
             )
             db.add(admin)
             print(f"Usuario administrador creado: {admin_usuario} / {admin_password}")
+            print("Va a tener que cambiar esta contraseña la primera vez que entre al panel.")
         else:
             print(f"El usuario '{admin_usuario}' ya existe, no se crea de nuevo.")
 

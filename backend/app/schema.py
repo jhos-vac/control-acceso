@@ -169,6 +169,7 @@ class UsuarioOut(UsuarioBase):
 
     id: int
     estado: bool
+    debe_cambiar_password: bool
 
 
 class LoginRequest(BaseModel):
@@ -180,3 +181,16 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     usuario: UsuarioOut
+
+
+class CambiarPasswordRequest(BaseModel):
+    password_actual: str
+    password_nueva: str
+
+
+class ResetearPasswordRequest(BaseModel):
+    # Usado por un ADMIN para resetear la contraseña de OTRO usuario (ver
+    # POST /api/usuarios/{id}/resetear-password) -- deja al usuario con
+    # esta contraseña temporal y debe_cambiar_password=True, para que la
+    # cambie él mismo apenas entre.
+    password_temporal: str

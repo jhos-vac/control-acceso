@@ -54,6 +54,14 @@ COLUMNAS_NUEVAS = {
         "comando_pendiente": "VARCHAR(20) NULL",
         "mac_address": "VARCHAR(17) NULL",
     },
+    "usuarios": {
+        # DEFAULT TRUE también para usuarios que ya existían -- si un
+        # admin se creó antes de este cambio, se le pide elegir su
+        # propia contraseña la próxima vez que entre (mejora de
+        # seguridad razonable, no debería sorprender a nadie en esta
+        # etapa del proyecto).
+        "debe_cambiar_password": "BOOLEAN NOT NULL DEFAULT TRUE",
+    },
 }
 
 

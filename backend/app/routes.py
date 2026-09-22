@@ -7,6 +7,8 @@ técnico:
     GET  /api/personas/dentro  -> consultar personas actualmente dentro
     GET  /api/movimientos      -> consultar historial
     POST /api/login            -> autenticar usuarios del panel
+    POST /api/usuarios/me/password              -> cambiar la propia contraseña
+    POST /api/usuarios/{id}/resetear-password    -> un ADMIN resetea la de otro usuario
 
 Se agregó además GET /api/puntos-acceso (necesario para poblar el
 panel administrativo) y un pequeño mecanismo de autenticación por
@@ -335,3 +337,37 @@ def login(payload: schema.LoginRequest, db: Session = Depends(get_db)):
         )
     token = services.crear_access_token({"sub": user.usuario, "rol": user.rol.value})
     return schema.TokenResponse(access_token=token, usuario=user)
+
+
+@router.post("/usuarios/me/password", tags=["auth"])
+def cambiar_mi_password(
+    payload: schema.CambiarPasswordRequest,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(get_current_user),
+):
+    """El usuario logueado cambia su propia contraseña -- pide la
+    contraseña actual para confirmar. Es el mismo endpoint tanto para el
+    paso obligatorio del primer ingreso (`debe_cambiar_password`) como
+    para un cambio voluntario más adelante desde el panel."""
+    services.cambiar_password(db, usuario, payload.password_actual, payload.password_nueva)
+    return {"status": "ok", "mensaje": "Contraseña actualizada."}
+
+
+@router.post("/usuarios/{usuario_id}/resetear-password", tags=["auth"])
+def resetear_password_usuario(
+    usuario_id: int,
+    payload: schema.ResetearPasswordRequest,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(get_admin_actual),
+):
+    """Un ADMIN resetea la contraseña de otro usuario que quedó afuera
+    (la olvidó, etc.) -- lo deja con una contraseña temporal y
+    `debe_cambiar_password=True`, para que elija la suya propia apenas
+    entre. Para cuando el propio ADMIN es quien queda afuera, ver
+    `backend/resetear_password_admin.py` (se corre directo en el
+    servidor, no necesita sesión en el panel)."""
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    services.resetear_password(db, usuario, payload.password_temporal)
+    return {"status": "ok", "mensaje": f"Contraseña de '{usuario.usuario}' reseteada."}

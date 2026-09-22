@@ -51,6 +51,25 @@ export function AuthProvider({ children }) {
     setUsuario(null);
   }
 
+  // Mezcla campos nuevos sobre el usuario guardado (ej. después de
+  // cambiar la contraseña, para apagar `debe_cambiar_password` sin
+  // tener que volver a loguearse) y lo persiste.
+  function actualizarUsuario(cambios) {
+    setUsuario((actual) => {
+      const nuevo = { ...actual, ...cambios };
+      localStorage.setItem("usuario", JSON.stringify(nuevo));
+      return nuevo;
+    });
+  }
+
+  async function cambiarPassword(passwordActual, passwordNueva) {
+    await api.post("/api/usuarios/me/password", {
+      password_actual: passwordActual,
+      password_nueva: passwordNueva,
+    });
+    actualizarUsuario({ debe_cambiar_password: false });
+  }
+
   const value = {
     usuario,
     token,
@@ -59,6 +78,7 @@ export function AuthProvider({ children }) {
     error,
     login,
     logout,
+    cambiarPassword,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
