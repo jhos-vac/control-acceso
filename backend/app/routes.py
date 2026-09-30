@@ -21,9 +21,10 @@ from datetime import date
 from io import BytesIO
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import and_, func, text
 from sqlalchemy.orm import Session
 
 from app import models, reportes, schema, services
@@ -62,10 +63,40 @@ def get_admin_actual(
     return usuario
 
 
+def exigir_terminal(x_terminal_key: Optional[str] = Header(default=None)) -> None:
+    """Para los endpoints que llama el propio terminal (sin sesión del
+    panel): si el backend tiene TERMINAL_API_KEY definida, exige que
+    llegue igual en el header X-Terminal-Key. Ver services.TERMINAL_API_KEY."""
+    if not services.clave_terminal_valida(x_terminal_key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Clave de terminal inválida o ausente.",
+        )
+
+
+# --------------------------------------------------------------------------
+# Healthcheck (para verificar un despliegue: `curl https://.../api/health`)
+# --------------------------------------------------------------------------
+@router.get("/health", tags=["healthcheck"])
+def health(db: Session = Depends(get_db)):
+    """Responde 200 si el backend está vivo Y llega a la base de datos;
+    503 si no. Sin autenticación a propósito (no expone datos)."""
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible.")
+    return {"status": "ok", "servicio": "control-acceso-backend"}
+
+
 # --------------------------------------------------------------------------
 # Acceso (usado por el terminal / lector QR)
 # --------------------------------------------------------------------------
-@router.post("/acceso", response_model=schema.AccesoResponse, tags=["acceso"])
+@router.post(
+    "/acceso",
+    response_model=schema.AccesoResponse,
+    tags=["acceso"],
+    dependencies=[Depends(exigir_terminal)],
+)
 def registrar_acceso(payload: schema.AccesoRequest, db: Session = Depends(get_db)):
     return services.procesar_acceso(
         db, payload.qr, payload.punto_acceso, payload.fecha_hora_cliente
@@ -88,26 +119,33 @@ def listar_personas(
 def personas_dentro(
     db: Session = Depends(get_db), _usuario: models.Usuario = Depends(get_current_user)
 ):
-    """Personas cuyo último movimiento fue ENTRADA (es decir, siguen dentro)."""
-    ultimos = (
-        db.query(models.Movimiento)
-        .order_by(models.Movimiento.personal_id, models.Movimiento.fecha_hora.desc())
+    """Personas cuyo último movimiento fue ENTRADA (es decir, siguen dentro).
+
+    Se resuelve en la base de datos (último movimiento por persona) en vez
+    de traer TODO el historial a memoria: con meses de registros, esa
+    versión se volvía cada vez más lenta y pesada."""
+    ultima_hora = (
+        db.query(
+            models.Movimiento.personal_id.label("personal_id"),
+            func.max(models.Movimiento.fecha_hora).label("ultima"),
+        )
+        .group_by(models.Movimiento.personal_id)
+        .subquery()
+    )
+    return (
+        db.query(models.Personal)
+        .join(models.Movimiento, models.Movimiento.personal_id == models.Personal.id)
+        .join(
+            ultima_hora,
+            and_(
+                ultima_hora.c.personal_id == models.Movimiento.personal_id,
+                ultima_hora.c.ultima == models.Movimiento.fecha_hora,
+            ),
+        )
+        .filter(models.Movimiento.tipo == models.TipoMovimiento.ENTRADA)
+        .distinct()
         .all()
     )
-
-    vistos = set()
-    dentro_ids = []
-    for mov in ultimos:
-        if mov.personal_id in vistos:
-            continue
-        vistos.add(mov.personal_id)
-        if mov.tipo == models.TipoMovimiento.ENTRADA:
-            dentro_ids.append(mov.personal_id)
-
-    if not dentro_ids:
-        return []
-
-    return db.query(models.Personal).filter(models.Personal.id.in_(dentro_ids)).all()
 
 
 # --------------------------------------------------------------------------
@@ -116,7 +154,7 @@ def personas_dentro(
 @router.get("/movimientos", response_model=List[schema.MovimientoOut], tags=["movimientos"])
 def listar_movimientos(
     personal_id: Optional[int] = None,
-    limite: int = 100,
+    limite: int = Query(100, ge=1, le=2000),
     db: Session = Depends(get_db),
     _usuario: models.Usuario = Depends(get_current_user),
 ):
@@ -182,6 +220,7 @@ def editar_punto_acceso(
     "/puntos-acceso/{punto_id}/latido",
     response_model=schema.LatidoResponse,
     tags=["puntos-acceso"],
+    dependencies=[Depends(exigir_terminal)],
 )
 def latido_punto_acceso(punto_id: int, db: Session = Depends(get_db)):
     """
@@ -289,7 +328,7 @@ def pdf_reporte(
 )
 def listar_notificaciones(
     solo_no_leidas: bool = False,
-    limite: int = 20,
+    limite: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
     _usuario: models.Usuario = Depends(get_current_user),
 ):

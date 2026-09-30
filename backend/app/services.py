@@ -16,7 +16,8 @@ Sigue el flujo funcional descrito en la sección 6 del documento:
 import os
 import re
 import socket
-from datetime import datetime, timedelta
+import hmac
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -62,6 +63,26 @@ EN_LINEA_SEGUNDOS = int(os.getenv("EN_LINEA_SEGUNDOS", "45"))
 MINUTOS_ANTIDUPLICADO_MOVIMIENTO = float(os.getenv("MINUTOS_ANTIDUPLICADO_MOVIMIENTO", "5"))
 
 COMANDOS_VALIDOS = {"APAGAR"}
+
+# --------------------------------------------------------------------------
+# Clave compartida de los terminales (Raspberry / lector)
+# --------------------------------------------------------------------------
+# /api/acceso y /api/puntos-acceso/{id}/latido los llama el propio terminal,
+# sin usuario del panel. Con el backend en la nube (expuesto a internet),
+# cualquiera que conozca la URL podría falsificar entradas/salidas o
+# consumir la orden de apagado pendiente. Si se define TERMINAL_API_KEY en
+# el .env del backend, esos endpoints exigen el mismo valor en el header
+# `X-Terminal-Key` (el terminal lo manda si tiene API_KEY en su .env). Sin
+# definirla no se exige nada (desarrollo local, o mientras se migra).
+TERMINAL_API_KEY = os.getenv("TERMINAL_API_KEY", "").strip()
+
+
+def clave_terminal_valida(clave_recibida: Optional[str]) -> bool:
+    if not TERMINAL_API_KEY:
+        return True
+    if not clave_recibida:
+        return False
+    return hmac.compare_digest(clave_recibida.encode("utf-8"), TERMINAL_API_KEY.encode("utf-8"))
 
 # --------------------------------------------------------------------------
 # Encendido remoto (Wake-on-LAN)
@@ -549,7 +570,7 @@ def resetear_password(db: Session, usuario: models.Usuario, password_temporal: s
 
 def crear_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 

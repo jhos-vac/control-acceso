@@ -19,3 +19,13 @@ dist/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Datos de ejecución que NO van al repositorio: la cola local del terminal
+# (SQLite, guarda los QR pendientes de enviar) y las bases locales de prueba
+*.db
+*.sqlite3
+
+# Paquetes .zip armados a mano para copiar a la Raspberry (duplican la
+# carpeta terminal/, que es la fuente de verdad, y quedan desactualizados)
+raspberry-terminal.zip
+

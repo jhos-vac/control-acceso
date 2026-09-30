@@ -20,11 +20,11 @@ y `frontend/src/pages/CambiarPassword.jsx`).
 import os
 
 from app import models, services
-from app.database import Base, SessionLocal, engine
+from app.database import SessionLocal, preparar_esquema
 
 
 def main():
-    Base.metadata.create_all(bind=engine)
+    preparar_esquema()
     db = SessionLocal()
     try:
         admin_usuario = os.getenv("ADMIN_USUARIO", "administrador")

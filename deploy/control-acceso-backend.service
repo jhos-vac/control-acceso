@@ -34,6 +34,13 @@ EnvironmentFile=-/var/www/control-acceso/backend/.env
 ExecStart=/var/www/control-acceso/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=on-failure
 RestartSec=5
+# Para que los print() del backend (auto-migración, notificaciones, avisos de
+# configuración) aparezcan al instante en `journalctl -u control-acceso-backend`.
+Environment=PYTHONUNBUFFERED=1
+# Endurecimiento básico: el servicio no necesita ganar privilegios extra y usa
+# su propio /tmp aislado.
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

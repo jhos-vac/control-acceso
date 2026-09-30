@@ -31,6 +31,7 @@ from reportlab.platypus import (
 from sqlalchemy.orm import Session
 
 from app import models
+from app.database import CLAVE_BLOQUEO_NOTIFICACIONES, bloquear_transaccion
 
 # --------------------------------------------------------------------------
 # Estilo / branding (mismo color institucional que el panel: #009EAD)
@@ -364,6 +365,12 @@ def generar_notificacion_reporte_diario(db: Session, dia: date) -> Optional[mode
     ese mismo día (evita duplicados si el backend se reinicia el mismo
     día, o si se llama más de una vez a propósito).
     """
+    # Con varios workers de Uvicorn (producción), todos ejecutan esta tarea
+    # a la vez al arrancar: sin este bloqueo, dos podrían pasar el "ya
+    # existe?" de abajo antes de que el otro guarde y crear la notificación
+    # por duplicado. El bloqueo se libera solo con el commit/cierre.
+    bloquear_transaccion(db, CLAVE_BLOQUEO_NOTIFICACIONES)
+
     ya_existe = (
         db.query(models.Notificacion)
         .filter(

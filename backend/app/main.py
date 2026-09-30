@@ -14,19 +14,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import models  # noqa: F401  (asegura que los modelos se registren en Base)
-from app.database import Base, asegurar_columnas_nuevas, engine
+from app.config import validar_configuracion
+from app.database import preparar_esquema
 from app.programador import iniciar_programador_notificaciones
 from app.routes import router
 
-# Crea las tablas si no existen. Para un proyecto en crecimiento se
-# recomienda migrar a Alembic más adelante, pero esto es suficiente
-# para el MVP.
-Base.metadata.create_all(bind=engine)
+# En producción (APP_ENV=production) se niega a arrancar con la
+# configuración de desarrollo (SECRET_KEY de ejemplo, CORS abierto...) --
+# mejor que el servicio no levante a que quede "funcionando" inseguro.
+validar_configuracion()
 
-# Agrega columnas nuevas a tablas que ya existían (ver database.py) —
-# soluciona el "Network Error" que se veía en Puntos de acceso cuando la
-# base de datos era de antes de agregar el latido/apagado remoto.
-asegurar_columnas_nuevas()
+# Crea las tablas si no existen y agrega las columnas nuevas a las que ya
+# existían (ver database.py). Es seguro con varios workers a la vez (usa un
+# bloqueo de PostgreSQL). Para un proyecto en crecimiento se recomienda
+# migrar a Alembic más adelante, pero esto es suficiente para el MVP.
+preparar_esquema()
 
 app = FastAPI(
     title="Sistema de Control de Acceso",

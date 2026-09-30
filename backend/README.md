@@ -52,6 +52,14 @@ copy .env.example .env
 Edita `.env` y ajusta `DATABASE_URL` con tu usuario/password de
 PostgreSQL, y genera un `SECRET_KEY` propio.
 
+Variables que solo importan en producción (ver `.env.production.example`
+y `../DESPLIEGUE.md`): `APP_ENV=production` (el backend se niega a
+arrancar si quedó alguna configuración de ejemplo), `ALLOWED_ORIGINS`
+(CORS) y `TERMINAL_API_KEY` (clave que deben mandar los terminales en el
+header `X-Terminal-Key` para `POST /api/acceso` y el latido; vacía = no se
+exige, como en desarrollo local). `GET /api/health` responde 200 si el
+backend está vivo y llega a la base de datos.
+
 ## 5. Crear las tablas y datos iniciales
 
 Las tablas se crean automáticamente al arrancar la API (`main.py`

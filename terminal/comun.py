@@ -33,6 +33,13 @@ load_dotenv()
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 PUNTO_ACCESO_ID = int(os.getenv("PUNTO_ACCESO_ID", "1"))
+
+# Clave compartida con el backend (TERMINAL_API_KEY en el .env del backend).
+# Con el backend en la nube, /api/acceso y el latido no están abiertos a
+# cualquiera: exigen esta clave en el header X-Terminal-Key. Si el backend no
+# tiene clave configurada (desarrollo local), no pasa nada por mandarla igual.
+API_KEY = os.getenv("API_KEY", "").strip()
+HEADERS_API = {"X-Terminal-Key": API_KEY} if API_KEY else {}
 TIEMPO_ANTIDUPLICADO = float(os.getenv("TIEMPO_ANTIDUPLICADO", "5"))
 INTERVALO_LATIDO = float(os.getenv("INTERVALO_LATIDO", "15"))
 
@@ -76,6 +83,7 @@ def registrar_acceso(qr_texto):
         respuesta = requests.post(
             f"{API_URL}/api/acceso",
             json={"qr": qr_texto, "punto_acceso": PUNTO_ACCESO_ID},
+            headers=HEADERS_API,
             timeout=8,
         )
         if respuesta.status_code == 200:
@@ -175,13 +183,26 @@ def _enviar_pendiente(pendiente):
                 "punto_acceso": PUNTO_ACCESO_ID,
                 "fecha_hora_cliente": pendiente["fecha_hora"].isoformat(),
             },
+            headers=HEADERS_API,
             timeout=TIMEOUT_ENVIO,
         )
         if respuesta.status_code == 200:
             return True, respuesta.json()
+        # Solo es "definitivo" (se descarta el pendiente) si reintentar no
+        # puede servir: el backend entendió la petición y la rechazó por su
+        # contenido (400, 404, 422...). En cambio se REINTENTA -- no se pierde
+        # el registro -- ante:
+        #   - 5xx (502/503/504 de Nginx mientras el backend se reinicia en un
+        #     despliegue, o un error temporal del servidor),
+        #   - 401/403 (clave de terminal mal configurada: al corregirla, lo
+        #     acumulado se envía solo),
+        #   - 408/429 (timeout / demasiadas peticiones).
+        reintentable = (
+            respuesta.status_code >= 500 or respuesta.status_code in (401, 403, 408, 429)
+        )
         return False, {
             "mensaje": f"El backend respondió {respuesta.status_code}: {respuesta.text}",
-            "definitivo": True,
+            "definitivo": not reintentable,
         }
     except requests.RequestException as error:
         return False, {"mensaje": f"No se pudo contactar al backend: {error}", "definitivo": False}
@@ -298,7 +319,9 @@ def enviar_latido():
     """
     try:
         respuesta = requests.post(
-            f"{API_URL}/api/puntos-acceso/{PUNTO_ACCESO_ID}/latido", timeout=6
+            f"{API_URL}/api/puntos-acceso/{PUNTO_ACCESO_ID}/latido",
+            headers=HEADERS_API,
+            timeout=6,
         )
         if respuesta.status_code == 200:
             return respuesta.json().get("comando")

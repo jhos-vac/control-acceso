@@ -147,25 +147,19 @@ Raspberry): escribe `exit` y Enter.
 
 ### 4.2 Descargar con `git clone`
 
-> **Importante sobre el repositorio**: el repositorio de GitHub que
-> tienes vinculado a este proyecto (`jhos-vac/VAL-BACKEND`) actualmente
-> **no contiene este código** — al revisarlo, es un proyecto distinto
-> (NestJS/TypeScript), no el backend FastAPI ni este terminal. Antes de
-> seguir estos pasos, confírmame en el chat cuál es (o cuál debería ser)
-> el repositorio correcto de `control-acceso`, o si hay que crear uno
-> nuevo — para no dejarte instrucciones que apunten al lugar equivocado.
-> Mientras tanto, la sección de abajo usa `<usuario>/<repositorio>` como
-> marcador de posición: reemplázalo por el repositorio real cuando lo
-> tengas.
-
-Con el repositorio correcto ya identificado (o creado), **ya conectado
-por SSH a la Raspberry** (sección 4.1):
+El repositorio del proyecto es `https://github.com/jhos-vac/control-acceso`.
+**Ya conectado por SSH a la Raspberry** (sección 4.1):
 
 ```bash
 sudo apt install -y git
 cd ~
-git clone https://github.com/<usuario>/<repositorio>.git control-acceso
+git clone https://github.com/jhos-vac/control-acceso.git control-acceso
 ```
+
+(Si el repositorio es privado, `git clone` por HTTPS va a pedir usuario y
+contraseña y va a fallar en una Raspberry sin teclado: usa una *deploy
+key* de solo lectura, ver `../DESPLIEGUE.md`, paso 3, o la alternativa
+4.3 de abajo.)
 
 Esto descarga todo el proyecto (`backend/`, `frontend/`, `terminal/`,
 etc.) a `/home/<usuario>/control-acceso/`. Los pasos siguientes de esta
@@ -292,9 +286,14 @@ nano .env
 ```
 
 Ajusta al menos `API_URL` (si el backend corre en otra máquina de la
-red, pon su IP, no `127.0.0.1`) y `SCANNER_DEVICE_PATH` (la ruta que
-encontraste en el paso 6). Sin `SCANNER_DEVICE_PATH` el terminal no
-tiene forma de leer ningún QR — no hay cámara de respaldo.
+red, pon su IP, no `127.0.0.1`; con el backend en la nube, su URL
+pública HTTPS), `SCANNER_DEVICE_PATH` (la ruta que encontraste en el
+paso 6) y, si el backend tiene `TERMINAL_API_KEY` configurada (siempre
+en producción), `API_KEY` con **el mismo valor**. Sin `SCANNER_DEVICE_PATH`
+el terminal no tiene forma de leer ningún QR — no hay cámara de respaldo.
+Con una `API_KEY` incorrecta el backend contesta `401`: no se pierde nada
+(los QR quedan en la cola local y se envían cuando se corrige), pero no
+se registra hasta entonces.
 
 ## 8. Probar
 
@@ -672,6 +671,6 @@ asíncrono, la marca duplicada y el WiFi de respaldo incluidos.
 
 ## Ver también
 
-- [[Backend_Base_de_Datos_Estado]] — endpoints de latido/apagado/encendido.
-- [[Carcasa_3D_Terminal_Estado]] — carcasa donde va montado todo esto.
+- `../backend/README.md` — endpoints de latido/apagado/encendido.
+- `../carcasas/` — carcasa donde va montado todo esto.
 - `../backend/README.md` — cómo levantar el backend.
